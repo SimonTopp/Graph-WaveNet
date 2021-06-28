@@ -24,7 +24,8 @@ def prep_adj_matrix(infile, dist_type, out_file=None):
     """
     adj_matrices = np.load(infile)
     adj = adj_matrices[dist_type]
-    adj = sort_dist_matrix(adj, adj_matrices["rowcolnames"])
+    adj_full = sort_dist_matrix(adj, adj_matrices["rowcolnames"])
+    adj = adj_full[2]
     adj = np.where(np.isinf(adj), 0, adj)
     adj = -adj
     mean_adj = np.mean(adj[adj != 0])
@@ -41,7 +42,7 @@ def prep_adj_matrix(infile, dist_type, out_file=None):
     A_hat = np.matmul(D_inv, A_hat)
     if out_file:
         np.savez_compressed(out_file, dist_matrix=A_hat)
-    return A_hat
+    return adj_full[0], adj_full[1], A_hat
 
 def sort_dist_matrix(mat, row_col_names):
     """
@@ -54,7 +55,24 @@ def sort_dist_matrix(mat, row_col_names):
     return df
 
 
+
+def sort_dist_matrix(mat, row_col_names):
+    """
+    sort the distance matrix by seg_id_nat
+    :return:
+    """
+    df = pd.DataFrame(mat, columns=row_col_names, index=row_col_names)
+    df = df.sort_index(axis=0)
+    df = df.sort_index(axis=1)
+    sensor_id_to_ind = {}
+    for i, sensor_id in enumerate(df.columns):
+        sensor_id_to_ind[sensor_id] = i
+
+    return row_col_names, sensor_id_to_ind, df
+
 our_dm = prep_adj_matrix('../../gits/river-dl/DRB_data/distance_matrix_subset.npz', 'upstream')
+out_dm = list(our_dm)
+
 
 import matplotlib.pyplot as plt
 
@@ -62,15 +80,14 @@ figus = plt.imshow(our_dm)
 figthem = plt.imshow(pickle_data[-1])
 
 ########
-##NOTE TO SELF, change line 42 in train to just adj.matrix
 ######
 
 ############ Input data comparison
 
 ####US
 prepped = np.load('../../gits/river-dl/test_val_functionality/prepped.npz')
-
+prepped
 
 ##### Them
 gwn_train = np.load('data/METR-LA/train.npz')
-gwn_train.shape
+gwn_train['x'].shape
