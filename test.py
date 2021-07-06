@@ -27,10 +27,27 @@ parser.add_argument('--checkpoint',type=str,help='')
 parser.add_argument('--plotheatmap',type=str,default='True',help='')
 
 
-args = parser.parse_args()
+#args = parser.parse_args()
 
+args = parser.parse_args(['--data', 'data/DRB_gwn'])
 
-
+args.device = 'cpu'
+args.data = 'data/DRB_gwn'
+args.adjdata = 'data/DRB_gwn/adj_mx.pkl'
+args.adjtype = 'doubletransition'
+args.gcn_bool = True
+args.aptonly = False
+args.addaptadj = True
+args.randomadj = False
+args.seq_length = 365
+args.nhid = 32
+args.in_dim = 8
+args.num_nodes = 42
+args.batch_size = 1
+args.learning_rate = 0.001
+args.dropout = 0.3
+args.weight_decay = 0.0001
+args.checkpoint = 'train_val_drb/_exp1_best_1.86.pth'
 
 def main():
     device = torch.device(args.device)
@@ -44,8 +61,10 @@ def main():
 
     if args.aptonly:
         supports = None
-
-    model =  gwnet(device, args.num_nodes, args.dropout, supports=supports, gcn_bool=args.gcn_bool, addaptadj=args.addaptadj, aptinit=adjinit)
+    model = gwnet(device, args.num_nodes, args.dropout, supports=supports, gcn_bool=args.gcn_bool, addaptadj=args.addaptadj,
+                   in_dim=args.in_dim, out_dim=args.seq_length, residual_channels=args.nhid, dilation_channels=args.nhid,
+                  skip_channels=args.nhid * 8, end_channels=args.nhid * 16, aptinit=adjinit)
+    #model =  gwnet(device, args.num_nodes, args.dropout, supports=supports, gcn_bool=args.gcn_bool, addaptadj=args.addaptadj, aptinit=adjinit)
     model.to(device)
     model.load_state_dict(torch.load(args.checkpoint))
     model.eval()
@@ -95,8 +114,8 @@ def main():
         adp = adp*(1/np.max(adp))
         df = pd.DataFrame(adp)
         sns.heatmap(df, cmap="RdYlBu")
-        plt.savefig("./emb"+ '.pdf')
-
+        #plt.savefig("./emb"+ '.pdf')
+'''
     y12 = realy[:,99,11].cpu().detach().numpy()
     yhat12 = scaler.inverse_transform(yhat[:,99,11]).cpu().detach().numpy()
 
@@ -105,7 +124,7 @@ def main():
 
     df2 = pd.DataFrame({'real12':y12,'pred12':yhat12, 'real3': y3, 'pred3':yhat3})
     df2.to_csv('./wave.csv',index=False)
-
+'''
 
 if __name__ == "__main__":
     main()

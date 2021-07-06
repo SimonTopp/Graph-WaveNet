@@ -203,9 +203,9 @@ def masked_mape(preds, labels, null_val=np.nan):
 
 
 def metric(pred, real):
-    mae = masked_mae(pred,real,0.0).item()
-    mape = masked_mape(pred,real,0.0).item()
-    rmse = masked_rmse(pred,real,0.0).item()
+    mae = masked_mae(pred,real).item()  # npval was 0 for all and changed to defualt np.nan
+    mape = masked_mape(pred,real).item()
+    rmse = masked_rmse(pred,real).item()
     return mae,mape,rmse
 
 

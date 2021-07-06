@@ -7,88 +7,434 @@ import argparse
 import numpy as np
 import os
 import pandas as pd
+import util
+
+import os.path
+
+import pandas as pd
+import numpy as np
+import yaml
+import xarray as xr
+import datetime
 
 
-def generate_graph_seq2seq_io_data(
-        df, x_offsets, y_offsets, add_time_in_day=True, add_day_in_week=False, scaler=None
+def scale(dataset, std=None, mean=None):
+    """
+    scale the data so it has a standard deviation of 1 and a mean of zero
+    :param dataset: [xr dataset] input or output data
+    :param std: [xr dataset] standard deviation if scaling test data with dims
+    :param mean: [xr dataset] mean if scaling test data with dims
+    :return: scaled data with original dims
+    """
+    if not isinstance(std, xr.Dataset) or not isinstance(mean, xr.Dataset):
+        std = dataset.std(skipna=True)
+        mean = dataset.mean(skipna=True)
+    # adding small number in case there is a std of zero
+    scaled = (dataset - mean) / (std + 1e-10)
+    check_if_finite(std)
+    check_if_finite(mean)
+    return scaled, std, mean
+
+
+def sel_partition_data(dataset, start_dates, end_dates):
+    """
+    select the data from a date range or a set of date ranges
+    :param dataset: [xr dataset] input or output data with date dimension
+    :param start_dates: [str or list] fmt: "YYYY-MM-DD"; date(s) to start period
+    (can have multiple discontinuos periods)
+    :param end_dates: [str or list] fmt: "YYYY-MM-DD"; date(s) to end period
+    (can have multiple discontinuos periods)
+    :return: dataset of just those dates
+    """
+    # if it just one date range
+    if isinstance(start_dates, str):
+        if isinstance(end_dates, str):
+            return dataset.sel(date=slice(start_dates, end_dates))
+        else:
+            raise ValueError("start_dates is str but not end_date")
+    # if it's a list of date ranges
+    elif isinstance(start_dates, list) or isinstance(start_dates, tuple):
+        if len(start_dates) == len(end_dates):
+            data_list = []
+            for i in range(len(start_dates)):
+                date_slice = slice(start_dates[i], end_dates[i])
+                data_list.append(dataset.sel(date=date_slice))
+            return xr.concat(data_list, dim="date")
+        else:
+            raise ValueError("start_dates and end_dates must have same length")
+    else:
+        raise ValueError("start_dates must be either str, list, or tuple")
+
+
+def separate_trn_tst(
+    dataset,
+    train_start_date,
+    train_end_date,
+    val_start_date,
+    val_end_date,
+    test_start_date,
+    test_end_date,
 ):
     """
-    Generate samples from
-    :param df:
-    :param x_offsets:
-    :param y_offsets:
-    :param add_time_in_day:
-    :param add_day_in_week:
-    :param scaler:
-    :return:
-    # x: (epoch_size, input_length, num_nodes, input_dim)
-    # y: (epoch_size, output_length, num_nodes, output_dim)
+    separate the train data from the test data according to the start and end
+    dates. This assumes your training data is in one continuous block and all
+    the dates that are not in the training are in the testing.
+    :param dataset: [xr dataset] input or output data with dims
+    :param train_start_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to start
+    train period (can have multiple discontinuos periods)
+    :param train_end_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to end train
+     period (can have multiple discontinuos periods)
+    :param val_start_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to start
+     validation period (can have multiple discontinuos periods)
+    :param val_end_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to end
+    validation period (can have multiple discontinuos periods)
+    :param test_start_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to start
+    test period (can have multiple discontinuos periods)
+    :param test_end_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to end test
+    period (can have multiple discontinuos periods)
     """
-
-    num_samples, num_nodes = df.shape
-    data = np.expand_dims(df.values, axis=-1)
-    feature_list = [data]
-    if add_time_in_day:
-        time_ind = (df.index.values - df.index.values.astype("datetime64[D]")) / np.timedelta64(1, "D")
-        time_in_day = np.tile(time_ind, [1, num_nodes, 1]).transpose((2, 1, 0))
-        feature_list.append(time_in_day)
-    if add_day_in_week:
-        dow = df.index.dayofweek
-        dow_tiled = np.tile(dow, [1, num_nodes, 1]).transpose((2, 1, 0))
-        feature_list.append(dow_tiled)
-
-    data = np.concatenate(feature_list, axis=-1)
-    x, y = [], []
-    min_t = abs(min(x_offsets))
-    max_t = abs(num_samples - abs(max(y_offsets)))  # Exclusive
-    for t in range(min_t, max_t):  # t is the index of the last observation.
-        x.append(data[t + x_offsets, ...])
-        y.append(data[t + y_offsets, ...])
-    x = np.stack(x, axis=0)
-    y = np.stack(y, axis=0)
-    return x, y
+    train = sel_partition_data(dataset, train_start_date, train_end_date)
+    val = sel_partition_data(dataset, val_start_date, val_end_date)
+    test = sel_partition_data(dataset, test_start_date, test_end_date)
+    return train, val, test
 
 
-def generate_train_val_test(args):
-    seq_length_x, seq_length_y = args.seq_length_x, args.seq_length_y
-    df = pd.read_hdf(args.traffic_df_filename)
-    # 0 is the latest observed sample.
-    x_offsets = np.sort(np.concatenate((np.arange(-(seq_length_x - 1), 1, 1),)))
-    # Predict the next one hour
-    y_offsets = np.sort(np.arange(args.y_start, (seq_length_y + 1), 1))
-    # x: (num_samples, input_length, num_nodes, input_dim)
-    # y: (num_samples, output_length, num_nodes, output_dim)
-    x, y = generate_graph_seq2seq_io_data(
-        df,
-        x_offsets=x_offsets,
-        y_offsets=y_offsets,
-        add_time_in_day=True,
-        add_day_in_week=args.dow,
+def split_into_batches(data_array, seq_len=365, offset=1):
+    """
+    split training data into batches with size of batch_size
+    :param data_array: [numpy array] array of training data with dims [nseg,
+    ndates, nfeat]
+    :param seq_len: [int] length of sequences (i.e., 365)
+    :param offset: [float] 0-1, how to offset the batches (e.g., 0.5 means that
+    the first batch will be 0-365 and the second will be 182-547)
+    :return: [numpy array] batched data with dims [nbatches, nseg, seq_len
+    (batch_size), nfeat]
+    """
+    combined = []
+    for i in range(int(1 / offset)):
+        start = int(i * offset * seq_len)
+        idx = np.arange(start=start, stop=data_array.shape[1] + 1, step=seq_len)
+        split = np.split(data_array, indices_or_sections=idx, axis=1)
+        # add all but the first and last batch since they will be smaller
+        combined.extend([s for s in split if s.shape[1] == seq_len])
+    combined = np.asarray(combined)
+    return combined
+
+
+def read_multiple_obs(obs_files, x_data):
+    """
+    read and format multiple observation files. we read in the pretrain data to
+    make sure we have the same indexing.
+    :param obs_files: [list] list of filenames of observation files
+    :param pre_train_file: [str] the file of pre_training data
+    :return: [xr dataset] the observations in the same time
+    """
+    obs = [x_data.sortby(["seg_id_nat", "date"])]
+    for filename in obs_files:
+        ds = xr.open_zarr(filename)
+        obs.append(ds)
+        if "site_id" in ds.variables:
+            del ds["site_id"]
+    obs = xr.merge(obs, join="left")
+    obs = obs[["temp_c", "discharge_cms"]]
+    obs = obs.rename(
+        {"temp_c": "seg_tave_water", "discharge_cms": "seg_outflow"}
+    )
+    return obs
+
+
+def reshape_for_training(data):
+    """
+    reshape the data for training
+    :param data: training data (either x or y or mask) dims: [nbatch, nseg,
+    len_seq, nfeat/nout]
+    :return: reshaped data [nbatch * nseg, len_seq, nfeat/nout]
+    """
+    n_batch, n_seg, seq_len, n_feat = data.shape
+    return np.reshape(data, [n_batch * n_seg, seq_len, n_feat])
+
+
+def get_exclude_start_end(exclude_grp):
+    """
+    get the start and end dates for the exclude group
+    :param exclude_grp: [dict] dictionary representing the exclude group from
+    the exclude yml file
+    :return: [tuple of datetime objects] start date, end date
+    """
+    start = exclude_grp.get("start_date")
+    if start:
+        start = datetime.datetime.strptime(start, "%Y-%m-%d")
+
+    end = exclude_grp.get("end_date")
+    if end:
+        end = datetime.datetime.strptime(end, "%Y-%m-%d")
+    return start, end
+
+
+
+def convert_batch_reshape(dataset, seq_len=365, offset=1):
+    """
+    convert xarray dataset into numpy array, swap the axes, batch the array and
+    reshape for training
+    :param dataset: [xr dataset] data to be batched
+    :param seq_len: [int] length of sequences (i.e., 365)
+    :param offset: [float] 0-1, how to offset the batches (e.g., 0.5 means that
+    the first batch will be 0-365 and the second will be 182-547)
+    :return: [numpy array] batched and reshaped dataset
+    """
+    # convert xr.dataset to numpy array
+    dataset = dataset.transpose("seg_id_nat", "date")
+
+    arr = dataset.to_array().values
+
+    # if the dataset is empty, just return it as is
+    if dataset.date.size == 0:
+        return arr
+
+    # before [nfeat, nseg, ndates]; after [nseg, ndates, nfeat]
+    # this is the order that the split into batches expects
+    arr = np.moveaxis(arr, 0, -1)
+
+    # batch the data
+    # after [nbatch, nseg, seq_len, nfeat]
+    batched = split_into_batches(arr, seq_len=seq_len, offset=offset)
+
+    # reshape data
+    # after [nbatch * nseg, seq_len, nfeat]
+    #reshaped = reshape_for_training(batched)
+    reshaped = np.moveaxis(batched, [0,1,2,3], [0,2,1,3])
+    return reshaped
+
+
+def coord_as_reshaped_array(dataset, coord_name, seq_len=365, offset=1):
+    # I need one variable name. It can be any in the dataset, but I'll use the
+    # first
+    first_var = next(iter(dataset.data_vars.keys()))
+    coord_array = xr.broadcast(dataset[coord_name], dataset[first_var])[0]
+    new_var_name = coord_name + "1"
+    dataset[new_var_name] = coord_array
+    reshaped_np_arr = convert_batch_reshape(
+        dataset[[new_var_name]], seq_len=seq_len, offset=offset
+    )
+    return reshaped_np_arr
+
+
+def check_if_finite(xarr):
+    assert np.isfinite(xarr.to_array().values).all()
+
+
+def prep_data(
+    obs_temper_file,
+    obs_flow_file,
+    pretrain_file,
+    #distfile,
+    train_start_date,
+    train_end_date,
+    val_start_date,
+    val_end_date,
+    test_start_date,
+    test_end_date,
+    x_vars=None,
+    y_vars= ["seg_tave_water", "seg_outflow"],
+    primary_variable="temp",
+    #catch_prop_file=None,
+    #exclude_file=None,
+    #log_q=False,
+    out_file=None,
+    #segs=None,
+    #normalize_y=True,
+):
+    """
+    prepare input and output data for DL model training read in and process
+    data into training and testing datasets. the training and testing data are
+    scaled to have a std of 1 and a mean of zero
+    :param obs_temper_file: [str] temperature observations file (csv)
+    :param obs_flow_file:[str] discharge observations file (csv)
+    :param pretrain_file: [str] the file with the pretraining data (SNTemp data)
+    :param distfile: [str] path to the distance matrix .npz file
+    :param train_start_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to start
+    train period (can have multiple discontinuos periods)
+    :param train_end_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to end train
+    period (can have multiple discontinuos periods)
+    :param val_start_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to start
+    validation period (can have multiple discontinuos periods)
+    :param val_end_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to end
+    validation period (can have multiple discontinuos periods)
+    :param test_start_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to start
+    test period (can have multiple discontinuos periods)
+    :param test_end_date: [str or list] fmt: "YYYY-MM-DD"; date(s) to end test
+    period (can have multiple discontinuos periods)
+    :param x_vars: [list] variables that should be used as input. If None, all
+    of the variables will be used
+    :param primary_variable: [str] which variable the model should focus on
+    'temp' or 'flow'. This determines the order of the variables.
+    :param catch_prop_file: [str] the path to the catchment properties file. If
+    left unfilled, the catchment properties will not be included as predictors
+    :param exclude_file: [str] path to exclude file
+    :param log_q: [bool] whether or not to take the log of discharge in training
+    :param out_file: [str] file to where the values will be written
+    :returns: training and testing data along with the means and standard
+    deviations of the training input and output data
+            'y_trn_pre': batched, scaled, and centered output data for entire
+                         period of record of SNTemp [n_samples, seq_len, n_out]
+            'y_obs_trn': batched, scaled, and centered output observation data
+                         for the training period
+            'y_trn_obs_std': standard deviation of the y observations training
+                             data [n_out]
+            'y_trn_obs_mean': mean of the observation training data [n_out]
+            'y_obs_tst': un-batched, unscaled, uncentered observation data for
+                         the test period [n_yrs, n_seg, len_seq, n_out]
+            'dates_ids_trn: batched dates and national seg ids for training data
+                            [n_samples, seq_len, 2]
+            'dates_ids_tst: un-batched dates and national seg ids for testing
+                            data [n_yrs, n_seg, len_seq, 2]
+    """
+    ds_pre = xr.open_zarr(pretrain_file)
+
+    x_data = ds_pre[x_vars]
+
+    # make sure we don't have any weird input values
+    check_if_finite(x_data)
+    x_trn, x_val, x_tst = separate_trn_tst(
+        x_data,
+        train_start_date,
+        train_end_date,
+        val_start_date,
+        val_end_date,
+        test_start_date,
+        test_end_date,
     )
 
-    print("x shape: ", x.shape, ", y shape: ", y.shape)
-    # Write the data into npz file.
-    num_samples = x.shape[0]
-    num_test = round(num_samples * 0.2)
-    num_train = round(num_samples * 0.7)
-    num_val = num_samples - num_test - num_train
-    x_train, y_train = x[:num_train], y[:num_train]
-    x_val, y_val = (
-        x[num_train: num_train + num_val],
-        y[num_train: num_train + num_val],
-    )
-    x_test, y_test = x[-num_test:], y[-num_test:]
+    y_obs = read_multiple_obs([obs_temper_file, obs_flow_file], x_data)
+    y_obs = y_obs[y_vars]
+    y_pre = ds_pre[y_vars]
 
-    for cat in ["train", "val", "test"]:
-        _x, _y = locals()["x_" + cat], locals()["y_" + cat]
-        print(cat, "x: ", _x.shape, "y:", _y.shape)
-        np.savez_compressed(
-            os.path.join(args.output_dir, f"{cat}.npz"),
-            x=_x,
-            y=_y,
-            x_offsets=x_offsets.reshape(list(x_offsets.shape) + [1]),
-            y_offsets=y_offsets.reshape(list(y_offsets.shape) + [1]),
-        )
+    y_obs_trn, y_obs_val, y_obs_tst = separate_trn_tst(
+        y_obs,
+        train_start_date,
+        train_end_date,
+        val_start_date,
+        val_end_date,
+        test_start_date,
+        test_end_date,
+    )
+    y_pre_trn, _, _ = separate_trn_tst(
+        y_pre,
+        train_start_date,
+        train_end_date,
+        val_start_date,
+        val_end_date,
+        test_start_date,
+        test_end_date,
+    )
+
+    data = {
+        "x_train": convert_batch_reshape(x_trn),
+        "x_val": convert_batch_reshape(x_val, offset=0.5),
+        "x_test": convert_batch_reshape(x_tst, offset=0.5),
+        "x_cols": np.array(x_vars),
+        "ids_train": coord_as_reshaped_array(x_trn, "seg_id_nat"),
+        "dates_train": coord_as_reshaped_array(x_trn, "date"),
+        "ids_val": coord_as_reshaped_array(x_val, "seg_id_nat", offset=0.5),
+        "dates_val": coord_as_reshaped_array(x_val, "date", offset=0.5),
+        "ids_test": coord_as_reshaped_array(x_tst, "seg_id_nat", offset=0.5),
+        "dates_test": coord_as_reshaped_array(x_tst, "date", offset=0.5),
+        "y_pre_train": convert_batch_reshape(y_pre_trn),
+        "y_obs_train": convert_batch_reshape(y_obs_trn),
+        "y_obs_val": convert_batch_reshape(y_obs_val, offset=0.5),
+        "y_obs_tst": convert_batch_reshape(y_obs_tst, offset=0.5),
+        "y_vars": np.array(y_vars),
+        }
+    if out_file:
+        np.savez_compressed(os.path.join(outfile, 'pre_train.npz'),
+                            x=data['x_train'],
+                            y=data['y_pre_train'])
+
+        np.savez_compressed(os.path.join(outfile,'train.npz'),
+                            x=data['x_train'],
+                            y=data['y_obs_train'],
+                            )
+
+        np.savez_compressed(os.path.join(out_file, 'test.npz'),
+                            x=data['x_test'],
+                            y=data['y_obs_tst'],
+                            )
+
+        np.savez_compressed(os.path.join(outfile,'val.npz'),
+                            x=data['x_val'],
+                            y=data['y_obs_val'],
+                            )
+    return data
+
+
+def prep_adj_matrix(infile, dist_type, out_file=None):
+    """
+    process adj matrix.
+    **The resulting matrix is sorted by seg_id_nat **
+    :param infile:
+    :param dist_type: [str] type of distance matrix ("upstream", "downstream" or
+    "updown")
+    :param out_file:
+    :return: [numpy array] processed adjacency matrix
+    """
+    adj_matrices = np.load(infile)
+    adj = adj_matrices[dist_type]
+    adj_full = sort_dist_matrix(adj, adj_matrices["rowcolnames"])
+    adj = adj_full[2]
+    adj = np.where(np.isinf(adj), 0, adj)
+    adj = -adj
+    mean_adj = np.mean(adj[adj != 0])
+    std_adj = np.std(adj[adj != 0])
+    adj[adj != 0] = adj[adj != 0] - mean_adj
+    adj[adj != 0] = adj[adj != 0] / std_adj
+    adj[adj != 0] = 1 / (1 + np.exp(-adj[adj != 0]))
+
+    I = np.eye(adj.shape[0])
+    A_hat = adj.copy() + I
+    D = np.sum(A_hat, axis=1)
+    D_inv = D ** -1.0
+    D_inv = np.diag(D_inv)
+    A_hat = np.matmul(D_inv, A_hat)
+    if out_file:
+        np.savez_compressed(out_file, dist_matrix=A_hat)
+    return adj_full[0], adj_full[1], A_hat
+
+
+
+
+def sort_dist_matrix(mat, row_col_names):
+    """
+    sort the distance matrix by seg_id_nat
+    :return:
+    """
+    df = pd.DataFrame(mat, columns=row_col_names, index=row_col_names)
+    df = df.sort_index(axis=0)
+    df = df.sort_index(axis=1)
+    sensor_id_to_ind = {}
+    for i, sensor_id in enumerate(df.columns):
+        sensor_id_to_ind[sensor_id] = i
+
+    return row_col_names, sensor_id_to_ind, df
+
+our_dm = prep_adj_matrix('../../gits/river-dl/DRB_data/distance_matrix_subset.npz', 'upstream')
+out_dm = list(our_dm)
+
+with open('data/DRB_gwn/adj_mx.pkl', 'wb') as f:
+    pickle.dump(out_dm, f, protocol=2)
+
+sensor_ids, sensor_id_to_ind, adj_mx = load_pickle('data/DRB_gwn/adj_mx.pkl')
+
+
+
+
+###### check our inputs
+data = {}
+for category in ['train', 'val', 'test']:
+    cat_data = np.load(os.path.join(args.data, category + '.npz'))
+    data['x_' + category] = cat_data['x']
+    data['y_' + category] = cat_data['y']
+
+
 
 
 if __name__ == "__main__":
@@ -107,3 +453,21 @@ if __name__ == "__main__":
     else:
         os.makedirs(args.output_dir)
     generate_train_val_test(args)
+
+
+##### Reformat our inputs to match theirs.
+df = pd.read_hdf("data/metr-la.h5")
+seq_length_x = 12
+seq_length_y = 12
+y_start = 1
+
+LAtrain = np.load('data/METR-LA/train.npz')
+LAtest = np.load('data/METR-LA/test.npz')
+LAval = np.load('data/METR-LA/val.npz')
+
+LAtrain['x'].shape
+LAtrain['y'].shape
+LAtest['x'].shape
+LAtest['y'].shape
+
+check = np.moveaxis(data['x_train'], [0,1,2,3], [0,2,1,3])
