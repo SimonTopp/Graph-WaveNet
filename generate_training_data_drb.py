@@ -16,7 +16,7 @@ import numpy as np
 import yaml
 import xarray as xr
 import datetime
-
+import pickle
 
 def scale(dataset, std=None, mean=None):
     """
@@ -200,7 +200,7 @@ def convert_batch_reshape(dataset, seq_len=365, offset=1):
     batched = split_into_batches(arr, seq_len=seq_len, offset=offset)
 
     # reshape data
-    # after [nbatch * nseg, seq_len, nfeat]
+    # after [nbatch, seq_len, nseg, nfeat]
     #reshaped = reshape_for_training(batched)
     reshaped = np.moveaxis(batched, [0,1,2,3], [0,2,1,3])
     return reshaped
@@ -242,7 +242,7 @@ def prep_data(
     #log_q=False,
     out_file=None,
     #segs=None,
-    #normalize_y=True,
+    normalize_y=False,
 ):
     """
     prepare input and output data for DL model training read in and process
@@ -305,6 +305,12 @@ def prep_data(
         test_end_date,
     )
 
+    x_scl, x_std, x_mean = scale(x_data)
+
+    x_trn_scl, _, _ = scale(x_trn, std=x_std, mean=x_mean)
+    x_val_scl, _, _ = scale(x_val, std=x_std, mean=x_mean)
+    x_tst_scl, _, _ = scale(x_tst, std=x_std, mean=x_mean)
+
     y_obs = read_multiple_obs([obs_temper_file, obs_flow_file], x_data)
     y_obs = y_obs[y_vars]
     y_pre = ds_pre[y_vars]
@@ -318,7 +324,7 @@ def prep_data(
         test_start_date,
         test_end_date,
     )
-    y_pre_trn, _, _ = separate_trn_tst(
+    y_pre_trn, y_pre_val, y_pre_tst = separate_trn_tst(
         y_pre,
         train_start_date,
         train_end_date,
@@ -328,29 +334,43 @@ def prep_data(
         test_end_date,
     )
 
+    if normalize_y:
+        # scale y training data and get the mean and std
+        y_obs_trn, y_std, y_mean = scale(y_obs_trn)
+        y_pre_trn, _, _ = scale(y_pre_trn, y_std, y_mean)
+    else:
+        _, y_std, y_mean = scale(y_obs_trn)
+
     data = {
-        "x_train": convert_batch_reshape(x_trn),
-        "x_val": convert_batch_reshape(x_val, offset=0.5),
-        "x_test": convert_batch_reshape(x_tst, offset=0.5),
+        "x_train": convert_batch_reshape(x_trn_scl),
+        "x_val": convert_batch_reshape(x_val_scl, offset=1),
+        "x_test": convert_batch_reshape(x_tst_scl, offset=1),
+        "x_std": x_std.to_array().values,
+        "x_mean": x_mean.to_array().values,
         "x_cols": np.array(x_vars),
         "ids_train": coord_as_reshaped_array(x_trn, "seg_id_nat"),
         "dates_train": coord_as_reshaped_array(x_trn, "date"),
-        "ids_val": coord_as_reshaped_array(x_val, "seg_id_nat", offset=0.5),
-        "dates_val": coord_as_reshaped_array(x_val, "date", offset=0.5),
-        "ids_test": coord_as_reshaped_array(x_tst, "seg_id_nat", offset=0.5),
-        "dates_test": coord_as_reshaped_array(x_tst, "date", offset=0.5),
+        "ids_val": coord_as_reshaped_array(x_val, "seg_id_nat", offset=1),
+        "dates_val": coord_as_reshaped_array(x_val, "date", offset=1),
+        "ids_test": coord_as_reshaped_array(x_tst, "seg_id_nat", offset=1),
+        "dates_test": coord_as_reshaped_array(x_tst, "date", offset=1),
         "y_pre_train": convert_batch_reshape(y_pre_trn),
         "y_obs_train": convert_batch_reshape(y_obs_trn),
-        "y_obs_val": convert_batch_reshape(y_obs_val, offset=0.5),
-        "y_obs_tst": convert_batch_reshape(y_obs_tst, offset=0.5),
+        "y_obs_val": convert_batch_reshape(y_obs_val, offset=1),
+        "y_obs_tst": convert_batch_reshape(y_obs_tst, offset=1),
         "y_vars": np.array(y_vars),
+        'y_pre_val': convert_batch_reshape(y_pre_val),
+        'y_pre_test': convert_batch_reshape(y_pre_tst),
+        "y_std": y_std.to_array().values,
+        "y_mean": y_mean.to_array().values,
         }
+
     if out_file:
-        np.savez_compressed(os.path.join(outfile, 'pre_train.npz'),
+        np.savez_compressed(os.path.join(out_file, 'pre_train.npz'),
                             x=data['x_train'],
                             y=data['y_pre_train'])
 
-        np.savez_compressed(os.path.join(outfile,'train.npz'),
+        np.savez_compressed(os.path.join(out_file,'train.npz'),
                             x=data['x_train'],
                             y=data['y_obs_train'],
                             )
@@ -360,7 +380,7 @@ def prep_data(
                             y=data['y_obs_tst'],
                             )
 
-        np.savez_compressed(os.path.join(outfile,'val.npz'),
+        np.savez_compressed(os.path.join(out_file,'val.npz'),
                             x=data['x_val'],
                             y=data['y_obs_val'],
                             )
@@ -396,7 +416,10 @@ def prep_adj_matrix(infile, dist_type, out_file=None):
     D_inv = np.diag(D_inv)
     A_hat = np.matmul(D_inv, A_hat)
     if out_file:
-        np.savez_compressed(out_file, dist_matrix=A_hat)
+        out_dm = [adj_full[0], adj_full[1], A_hat]
+        with open(out_file+'.pkl', 'wb') as f:
+            pickle.dump(out_dm, f, protocol=2)
+
     return adj_full[0], adj_full[1], A_hat
 
 
@@ -416,28 +439,26 @@ def sort_dist_matrix(mat, row_col_names):
 
     return row_col_names, sensor_id_to_ind, df
 
-our_dm = prep_adj_matrix('../../gits/river-dl/DRB_data/distance_matrix_subset.npz', 'upstream')
-out_dm = list(our_dm)
-
-with open('data/DRB_gwn/adj_mx.pkl', 'wb') as f:
-    pickle.dump(out_dm, f, protocol=2)
-
-sensor_ids, sensor_id_to_ind, adj_mx = load_pickle('data/DRB_gwn/adj_mx.pkl')
 
 
+check = prep_adj_matrix('../../gits/river-dl/DRB_data/distance_matrix_subset.npz', 'upstream', 'data/DRB_gwn_full/adj_mx')
 
+check2 = prep_data(obs_temper_file='../../gits/river-dl/DRB_data/obs_temp_subset',
+          obs_flow_file='../../gits/river-dl/DRB_data/obs_flow_subset',
+          pretrain_file='../../gits/river-dl/DRB_data/uncal_sntemp_input_output_subset',
+          train_start_date=['1985-10-01', '2016-10-01'],
+          train_end_date=['2006-09-30', '2020-09-30'],
+          val_start_date='2006-10-01',
+          val_end_date='2016-09-30',
+          test_start_date=['1980-10-01', '2020-10-01'],
+          test_end_date=['1985-09-30', '2021-09-30'],
+          x_vars=["seg_rain", "seg_tave_air", "seginc_swrad", "seg_length", "seginc_potet", "seg_slope", "seg_humid",
+                  "seg_elev"],
+          y_vars=['seg_tave_water'],
+          primary_variable='temp',
+          out_file='data/DRB_gwn')
 
-###### check our inputs
-data = {}
-for category in ['train', 'val', 'test']:
-    cat_data = np.load(os.path.join(args.data, category + '.npz'))
-    data['x_' + category] = cat_data['x']
-    data['y_' + category] = cat_data['y']
-
-
-
-
-if __name__ == "__main__":
+'''f __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", type=str, default="data/METR-LA", help="Output directory.")
     parser.add_argument("--traffic_df_filename", type=str, default="data/metr-la.h5", help="Raw traffic readings.",)
@@ -471,3 +492,23 @@ LAtest['x'].shape
 LAtest['y'].shape
 
 check = np.moveaxis(data['x_train'], [0,1,2,3], [0,2,1,3])
+
+np.savez_compressed(os.path.join(out_file, 'pre_train.npz'),
+                    x=data['x_train'],
+                    y=data['y_pre_train'])
+
+np.savez_compressed(os.path.join(out_file,'train.npz'),
+                    x=data['x_train'],
+                    y=data['y_pre_train'],
+                    )
+
+np.savez_compressed(os.path.join(out_file, 'test.npz'),
+                    x=data['x_test'],
+                    y=data['y_pre_test'],
+                    )
+
+np.savez_compressed(os.path.join(out_file,'val.npz'),
+                    x=data['x_val'],
+                    y=data['y_pre_val'],
+                    )
+'''
