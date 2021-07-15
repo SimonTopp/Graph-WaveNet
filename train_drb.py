@@ -5,7 +5,7 @@ import argparse
 import time
 import util
 import os.path
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 from engine import trainer
 
 parser = argparse.ArgumentParser()
@@ -20,13 +20,14 @@ parser.add_argument('--randomadj',action='store_true',help='whether random initi
 parser.add_argument('--seq_length',type=int,default=365,help='')
 parser.add_argument('--nhid',type=int,default=32,help='')
 parser.add_argument('--in_dim',type=int,default=8,help='inputs dimension')
+parser.add_argument('--out_dim',type=int, default=12,help = 'Period of output predictions')
 parser.add_argument('--num_nodes',type=int,default=456,help='number of nodes')
 parser.add_argument('--batch_size',type=int,default=1,help='batch size')
 parser.add_argument('--learning_rate',type=float,default=0.001,help='learning rate')
 parser.add_argument('--dropout',type=float,default=0.3,help='dropout rate')
 parser.add_argument('--weight_decay',type=float,default=0.0001,help='weight decay rate')
-parser.add_argument('--epochs',type=int,default=100,help='')
-parser.add_argument('--epochs_pre',type=int,default=100,help='')
+parser.add_argument('--epochs',type=int,default=50,help='')
+parser.add_argument('--epochs_pre',type=int,default=25,help='')
 parser.add_argument('--print_every',type=int,default=1,help='')
 #parser.add_argument('--seed',type=int,default=99,help='random seed')
 parser.add_argument('--save',type=str,default='./train_val_drb/',help='save path')
@@ -70,7 +71,7 @@ def main():
 
     engine = trainer(scaler, args.in_dim, args.seq_length, args.num_nodes, args.nhid, args.dropout,
                          args.learning_rate, args.weight_decay, device, supports, args.gcn_bool, args.addaptadj,
-                         adjinit)
+                         adjinit, args.out_dim)
 
     print("start pre_training...", flush=True)
     phis_loss =[]

@@ -173,7 +173,7 @@ def masked_mse(preds, labels, null_val=np.nan):
     return torch.mean(loss)
 
 def masked_rmse(preds, labels, null_val=np.nan):
-    return torch.sqrt(masked_mse(preds=preds, labels=labels, null_val=np.nan))
+    return torch.sqrt(masked_mse(preds=preds, labels=labels, null_val=null_val))
 
 
 def masked_mae(preds, labels, null_val=np.nan):

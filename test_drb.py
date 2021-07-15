@@ -37,9 +37,9 @@ args.device = 'cpu'
 args.gcn_bool = True
 args.addaptadj = True
 args.randomadj = True
-args.checkpoint = 'train_val_drb/default_best_0.0.pth'
+args.checkpoint = 'train_val_drb/dt_best_1.78.pth'
 args.data = 'data/DRB_gwn_full'
-args.adjtype = 'transition'
+#args.adjtype = 'transition'
 
 def main():
     device = torch.device(args.device)
@@ -129,6 +129,8 @@ df = pd.DataFrame({'realy': realy.flatten()}, index=index)['realy']
 df = df.unstack(level='y').swaplevel().sort_index()
 df.index.names = ['DOY', 'Year']
 df.reset_index(inplace=True)
+
+_, ids,_ = util.load_adj(args.adjdata,args.adjtype)
 segIds = list(ids.keys())
 df.columns = ['DOY','Year'] +segIds
 df = df.dropna(axis=1,thresh=200)
@@ -153,5 +155,6 @@ def plotter(seg):
     ax.plot(x,predicted, label = 'Predicted')
     ax.legend()
 
-plotter('2037')
+df.columns
+plotter('1703')
 dfpreds.filter('Year' is 1)

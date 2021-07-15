@@ -242,7 +242,7 @@ def prep_data(
     #log_q=False,
     out_file=None,
     #segs=None,
-    normalize_y=False,
+    normalize_y=True,
 ):
     """
     prepare input and output data for DL model training read in and process
