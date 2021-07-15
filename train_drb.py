@@ -37,11 +37,15 @@ args = parser.parse_args()
 '''
 args = parser.parse_args(['--epochs', '1'])
 args.device = 'cpu'
+args.out_dim = 365
 args.gcn_bool = True
 args.addaptadj = True
-args.num_nodes = 42
-args.epochs_pre = 1
-args.batch_size = 1
+#args.num_nodes = 42
+args.epochs_pre = 0
+args.batch_size = 2
+#args.seq_length = 30
+args.data = 'data/DRB_gwn'
+args.adjdata = 'data/DRB_gwn/adj_mx.pkl'
 '''
 def main():
     #set seed
@@ -185,6 +189,7 @@ def main():
         outputs.append(preds.squeeze())
 
     yhat = torch.cat(outputs,dim=0)
+    yhat = yhat[:,0,:,:]
     yhat = yhat[:realy.size(0),...]
 
 
