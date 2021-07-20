@@ -172,7 +172,7 @@ def get_exclude_start_end(exclude_grp):
 
 
 
-def convert_batch_reshape(dataset, seq_len=365, offset=1):
+def convert_batch_reshape(dataset, seq_len=365, offset=1, y = False, period = np.nan):
     """
     convert xarray dataset into numpy array, swap the axes, batch the array and
     reshape for training
@@ -200,9 +200,12 @@ def convert_batch_reshape(dataset, seq_len=365, offset=1):
     batched = split_into_batches(arr, seq_len=seq_len, offset=offset)
 
     # reshape data
-    # after [nbatch, seq_len, nseg, nfeat]
+    # after [nseq, seq_len, nseg, nfeat]
     #reshaped = reshape_for_training(batched)
     reshaped = np.moveaxis(batched, [0,1,2,3], [0,2,1,3])
+    if y & np.isfinite(period):
+        reshaped = reshaped[:,-period:,...]
+
     return reshaped
 
 
@@ -236,13 +239,16 @@ def prep_data(
     test_end_date,
     x_vars=None,
     y_vars= ["seg_tave_water", "seg_outflow"],
+    seq_length = 365,
+    offset = 1,
+    period = None,
     primary_variable="temp",
     #catch_prop_file=None,
     #exclude_file=None,
     #log_q=False,
     out_file=None,
     #segs=None,
-    normalize_y=True,
+    normalize_y=False,
 ):
     """
     prepare input and output data for DL model training read in and process
@@ -342,30 +348,35 @@ def prep_data(
         _, y_std, y_mean = scale(y_obs_trn)
 
     data = {
-        "x_train": convert_batch_reshape(x_trn_scl),
-        "x_val": convert_batch_reshape(x_val_scl, offset=1),
-        "x_test": convert_batch_reshape(x_tst_scl, offset=1),
+        "x_train": convert_batch_reshape(x_trn_scl, offset=offset, seq_len=seq_length),
+        "x_val": convert_batch_reshape(x_val_scl, offset=offset, seq_len=seq_length),
+        "x_test": convert_batch_reshape(x_tst_scl, offset=offset, seq_len=seq_length),
         "x_std": x_std.to_array().values,
         "x_mean": x_mean.to_array().values,
         "x_cols": np.array(x_vars),
-        "ids_train": coord_as_reshaped_array(x_trn, "seg_id_nat"),
-        "dates_train": coord_as_reshaped_array(x_trn, "date"),
-        "ids_val": coord_as_reshaped_array(x_val, "seg_id_nat", offset=1),
-        "dates_val": coord_as_reshaped_array(x_val, "date", offset=1),
-        "ids_test": coord_as_reshaped_array(x_tst, "seg_id_nat", offset=1),
-        "dates_test": coord_as_reshaped_array(x_tst, "date", offset=1),
-        "y_pre_train": convert_batch_reshape(y_pre_trn),
-        "y_obs_train": convert_batch_reshape(y_obs_trn),
-        "y_obs_val": convert_batch_reshape(y_obs_val, offset=1),
-        "y_obs_tst": convert_batch_reshape(y_obs_tst, offset=1),
+        "ids_train": coord_as_reshaped_array(x_trn, "seg_id_nat", offset=offset, seq_len=seq_length),
+        "dates_train": coord_as_reshaped_array(x_trn, "date", offset=offset, seq_len=seq_length),
+        "ids_val": coord_as_reshaped_array(x_val, "seg_id_nat", offset=offset, seq_len=seq_length),
+        "dates_val": coord_as_reshaped_array(x_val, "date", offset=offset, seq_len=seq_length),
+        "ids_test": coord_as_reshaped_array(x_tst, "seg_id_nat", offset=offset, seq_len=seq_length),
+        "dates_test": coord_as_reshaped_array(x_tst, "date", offset=offset, seq_len=seq_length),
+        "y_pre_train": convert_batch_reshape(y_pre_trn, offset=offset, seq_len=seq_length, y=True, period=period),
+        "y_train": convert_batch_reshape(y_obs_trn, offset=offset, seq_len=seq_length, y=True, period=period),
+        "y_val": convert_batch_reshape(y_obs_val, offset=offset, seq_len=seq_length, y=True, period=period),
+        "y_test": convert_batch_reshape(y_obs_tst, offset=offset, seq_len=seq_length, y=True, period=period),
         "y_vars": np.array(y_vars),
-        'y_pre_val': convert_batch_reshape(y_pre_val),
-        'y_pre_test': convert_batch_reshape(y_pre_tst),
+        'period': np.array([period]),
+        'y_pre_train_val': convert_batch_reshape(y_pre_val, offset=offset, seq_len=seq_length, y=True, period=period),
+        'y_pre_train_test': convert_batch_reshape(y_pre_tst, offset=offset, seq_len=seq_length, y=True, period=period),
         "y_std": y_std.to_array().values,
         "y_mean": y_mean.to_array().values,
         }
 
     if out_file:
+        if os.path.isdir(out_file) == False:
+            os.makedirs(out_file)
+
+        '''
         np.savez_compressed(os.path.join(out_file, 'pre_train.npz'),
                             x=data['x_train'],
                             y=data['y_pre_train'])
@@ -384,6 +395,8 @@ def prep_data(
                             x=data['x_val'],
                             y=data['y_obs_val'],
                             )
+        '''
+        np.savez_compressed(os.path.join(out_file,'data.npz'), **data)
     return data
 
 
@@ -439,24 +452,27 @@ def sort_dist_matrix(mat, row_col_names):
 
     return row_col_names, sensor_id_to_ind, df
 
+#check = prep_adj_matrix('../../gits/river-dl/DRB_data/distance_matrix.npz', 'upstream', 'data/DRB_gwn_full/adj_mx')
+if __name__ == "__main__":
 
+    check2 = prep_data(obs_temper_file='../../gits/river-dl/DRB_data/obs_temp_full',
+        obs_flow_file='../../gits/river-dl/DRB_data/obs_flow_full',
+        pretrain_file='../../gits/river-dl/DRB_data/uncal_sntemp_input_output',
+        train_start_date=['1985-10-01', '2016-10-01'],
+        train_end_date=['2006-09-30', '2020-09-30'],
+        val_start_date='2006-10-01',
+        val_end_date='2016-09-30',
+        test_start_date=['1980-10-01', '2020-10-01'],
+        test_end_date=['1985-09-30', '2021-09-30'],
+        x_vars=["seg_rain", "seg_tave_air", "seginc_swrad", "seg_length", "seginc_potet", "seg_slope", "seg_humid",
+              "seg_elev"],
+        y_vars=['seg_tave_water'],
+        primary_variable='temp',
+        seq_length=30,
+        period=np.nan,
+        offset=1,
+        out_file = 'data/DRB_gwn_full_30')
 
-check = prep_adj_matrix('../../gits/river-dl/DRB_data/distance_matrix.npz', 'upstream', 'data/DRB_gwn_full/adj_mx')
-
-check2 = prep_data(obs_temper_file='../../gits/river-dl/DRB_data/obs_temp_full',
-          obs_flow_file='../../gits/river-dl/DRB_data/obs_flow_full',
-          pretrain_file='../../gits/river-dl/DRB_data/uncal_sntemp_input_output',
-          train_start_date=['1985-10-01', '2016-10-01'],
-          train_end_date=['2006-09-30', '2020-09-30'],
-          val_start_date='2006-10-01',
-          val_end_date='2016-09-30',
-          test_start_date=['1980-10-01', '2020-10-01'],
-          test_end_date=['1985-09-30', '2021-09-30'],
-          x_vars=["seg_rain", "seg_tave_air", "seginc_swrad", "seg_length", "seginc_potet", "seg_slope", "seg_humid",
-                  "seg_elev"],
-          y_vars=['seg_tave_water'],
-          primary_variable='temp',
-          out_file='data/DRB_gwn_full')
 
 '''f __name__ == "__main__":
     parser = argparse.ArgumentParser()

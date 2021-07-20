@@ -19,8 +19,9 @@ class trainer():
         output = output.transpose(1,3)
         #output = [batch_size,12,num_nodes,1]
         real = torch.unsqueeze(real_val,dim=1)
-        real = self.scaler.inverse_transform(real)
-        predict = self.scaler.inverse_transform(output)
+        #real = self.scaler.inverse_transform(real)
+        #predict = self.scaler.inverse_transform(output)
+        predict = output
 
         loss = self.loss(predict, real)
         loss.backward()
@@ -33,14 +34,15 @@ class trainer():
 
     def eval(self, input, real_val):
         self.model.eval()
-        #input = nn.functional.pad(input,(1,0,0,0))
+        input = nn.functional.pad(input,(1,0,0,0))
         #input = self.scaler.transform(input)
         output = self.model(input)
         output = output.transpose(1,3)
         #output = [batch_size,12,num_nodes,1]
         real = torch.unsqueeze(real_val,dim=1)
         #real = self.scaler.inverse_transform(real)
-        predict = self.scaler.inverse_transform(output)
+        #predict = self.scaler.inverse_transform(output)
+        predict = output
         loss = self.loss(predict, real)
         mape = util.masked_mape(predict,real).item()
         rmse = util.masked_rmse(predict,real).item()

@@ -33,20 +33,23 @@ parser.add_argument('--print_every',type=int,default=1,help='')
 parser.add_argument('--save',type=str,default='./train_val_drb/',help='save path')
 parser.add_argument('--expid',type=str,default='default',help='experiment id')
 
-args = parser.parse_args()
-'''
+#args = parser.parse_args()
+
 args = parser.parse_args(['--epochs', '1'])
+args.data = 'data/DRB_gwn_full_60'
+args.adjdata = 'data/DRB_gwn_full/adj_mx.pkl'
+args.adjtype = 'transition'
 args.device = 'cpu'
-args.out_dim = 365
+args.out_dim=30
+args.seq_length=60
 args.gcn_bool = True
 args.addaptadj = True
 #args.num_nodes = 42
-args.epochs_pre = 0
+args.epochs_pre = 1
 args.batch_size = 2
 #args.seq_length = 30
-args.data = 'data/DRB_gwn'
-args.adjdata = 'data/DRB_gwn/adj_mx.pkl'
-'''
+
+
 def main():
     #set seed
     #torch.manual_seed(args.seed)
@@ -168,13 +171,13 @@ def main():
 
         log = 'Epoch: {:03d}, Train Loss: {:.4f}, Train MAPE: {:.4f}, Train RMSE: {:.4f}, Valid Loss: {:.4f}, Valid MAPE: {:.4f}, Valid RMSE: {:.4f}, Training Time: {:.4f}/epoch'
         print(log.format(i, mtrain_loss, mtrain_mape, mtrain_rmse, mvalid_loss, mvalid_mape, mvalid_rmse, (t2 - t1)),flush=True)
-        torch.save(engine.model.state_dict(), args.save+args.expid+"_epoch_"+str(i)+"_"+str(round(mvalid_loss,2))+".pth")
+        torch.save(engine.model.state_dict(), args.save+'/tmp/'+args.expid+"_epoch_"+str(i)+"_"+str(round(mvalid_loss,2))+".pth")
     print("Average Training Time: {:.4f} secs/epoch".format(np.mean(train_time)))
     print("Average Inference Time: {:.4f} secs".format(np.mean(val_time)))
 
     #testing
     bestid = np.argmin(his_loss)
-    engine.model.load_state_dict(torch.load(args.save+args.expid+"_epoch_"+str(bestid+1)+"_"+str(round(his_loss[bestid],2))+".pth"))
+    engine.model.load_state_dict(torch.load(args.save+'/tmp/'+args.expid+"_epoch_"+str(bestid+1)+"_"+str(round(his_loss[bestid],2))+".pth"))
 
 
     outputs = []
@@ -200,8 +203,9 @@ def main():
     amae = []
     amape = []
     armse = []
-    for i in range(10):
-        pred = scaler.inverse_transform(yhat[:,:,i])
+    for i in range(12):
+        #pred = scaler.inverse_transform(yhat[:,:,i])
+        pred = yhat[:,:,i]
         real = realy[:,:,i]
         metrics = util.metric(pred,real)
         log = 'Evaluate best model on test data for horizon {:d}, Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'
