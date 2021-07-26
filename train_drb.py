@@ -28,27 +28,29 @@ parser.add_argument('--dropout',type=float,default=0.3,help='dropout rate')
 parser.add_argument('--weight_decay',type=float,default=0.0001,help='weight decay rate')
 parser.add_argument('--epochs',type=int,default=50,help='')
 parser.add_argument('--epochs_pre',type=int,default=25,help='')
-parser.add_argument('--print_every',type=int,default=1,help='')
+parser.add_argument('--print_every',type=int,default=20,help='')
 #parser.add_argument('--seed',type=int,default=99,help='random seed')
 parser.add_argument('--save',type=str,default='./train_val_drb/',help='save path')
 parser.add_argument('--expid',type=str,default='default',help='experiment id')
+parser.add_argument('--kernel_size',type=int, default=2)
+parser.add_argument('--layer_size',type=int,default=2)
 
 #args = parser.parse_args()
-
 args = parser.parse_args(['--epochs', '1'])
-args.data = 'data/DRB_gwn_full_60'
-args.adjdata = 'data/DRB_gwn_full/adj_mx.pkl'
+args.data = 'data/DRB_gwn'
+args.adjdata = 'data/DRB_gwn/adj_mx.pkl'
 args.adjtype = 'transition'
 args.device = 'cpu'
-args.out_dim=30
-args.seq_length=60
-args.gcn_bool = True
-args.addaptadj = True
-#args.num_nodes = 42
+args.out_dim=365
+args.seq_length=365
+#args.gcn_bool = True
+#args.addaptadj = True
+args.num_nodes = 42
 args.epochs_pre = 1
 args.batch_size = 2
-#args.seq_length = 30
-
+args.expid='testsub'
+args.kernel_size = 4
+args.layer_size = 6
 
 def main():
     #set seed
@@ -78,7 +80,7 @@ def main():
 
     engine = trainer(scaler, args.in_dim, args.seq_length, args.num_nodes, args.nhid, args.dropout,
                          args.learning_rate, args.weight_decay, device, supports, args.gcn_bool, args.addaptadj,
-                         adjinit, args.out_dim)
+                         adjinit, args.out_dim, args.kernel_size, args.layer_size)
 
     print("start pre_training...", flush=True)
     phis_loss =[]
@@ -192,7 +194,6 @@ def main():
         outputs.append(preds.squeeze())
 
     yhat = torch.cat(outputs,dim=0)
-    yhat = yhat[:,0,:,:]
     yhat = yhat[:realy.size(0),...]
 
 

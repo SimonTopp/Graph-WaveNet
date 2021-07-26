@@ -453,25 +453,25 @@ def sort_dist_matrix(mat, row_col_names):
     return row_col_names, sensor_id_to_ind, df
 
 #check = prep_adj_matrix('../../gits/river-dl/DRB_data/distance_matrix.npz', 'upstream', 'data/DRB_gwn_full/adj_mx')
-if __name__ == "__main__":
+#if __name__ == "__main__":
 
-    check2 = prep_data(obs_temper_file='../../gits/river-dl/DRB_data/obs_temp_full',
-        obs_flow_file='../../gits/river-dl/DRB_data/obs_flow_full',
-        pretrain_file='../../gits/river-dl/DRB_data/uncal_sntemp_input_output',
-        train_start_date=['1985-10-01', '2016-10-01'],
-        train_end_date=['2006-09-30', '2020-09-30'],
-        val_start_date='2006-10-01',
-        val_end_date='2016-09-30',
-        test_start_date=['1980-10-01', '2020-10-01'],
-        test_end_date=['1985-09-30', '2021-09-30'],
-        x_vars=["seg_rain", "seg_tave_air", "seginc_swrad", "seg_length", "seginc_potet", "seg_slope", "seg_humid",
-              "seg_elev"],
-        y_vars=['seg_tave_water'],
-        primary_variable='temp',
-        seq_length=30,
-        period=np.nan,
-        offset=1,
-        out_file = 'data/DRB_gwn_full_30')
+check2 = prep_data(obs_temper_file='../../gits/river-dl/DRB_data/obs_temp_subset',
+    obs_flow_file='../../gits/river-dl/DRB_data/obs_flow_subset',
+    pretrain_file='../../gits/river-dl/DRB_data/uncal_sntemp_input_output_subset',
+    train_start_date=['1985-10-01', '2016-10-01'],
+    train_end_date=['2006-09-30', '2020-09-30'],
+    val_start_date='2006-10-01',
+    val_end_date='2016-09-30',
+    test_start_date=['1980-10-01', '2020-10-01'],
+    test_end_date=['1985-09-30', '2021-09-30'],
+    x_vars=["seg_rain", "seg_tave_air", "seginc_swrad", "seg_length", "seginc_potet", "seg_slope", "seg_humid",
+          "seg_elev"],
+    y_vars=['seg_tave_water'],
+    primary_variable='temp',
+    seq_length=365,
+    period=np.nan,
+    offset=1,
+    out_file = 'data/DRB_gwn')
 
 
 '''f __name__ == "__main__":
