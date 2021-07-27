@@ -6,123 +6,116 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--device',type=str,default='cuda:3',help='')
-parser.add_argument('--data',type=str,default='data/DRB_gwn_full',help='data path')
-parser.add_argument('--adjdata',type=str,default='data/DRB_gwn_full/adj_mx.pkl',help='adj data path')
-parser.add_argument('--adjtype',type=str,default='doubletransition',help='adj type')
-parser.add_argument('--gcn_bool',action='store_true',help='whether to add graph convolution layer')
-parser.add_argument('--aptonly',action='store_true',help='whether only adaptive adj')
-parser.add_argument('--addaptadj',action='store_true',help='whether add adaptive adj')
-parser.add_argument('--randomadj',action='store_true',help='whether random initialize adaptive adj')
-parser.add_argument('--seq_length',type=int,default=365,help='')
-parser.add_argument('--nhid',type=int,default=32,help='')
-parser.add_argument('--in_dim',type=int,default=8,help='inputs dimension')
-parser.add_argument('--num_nodes',type=int,default=456,help='number of nodes')
-parser.add_argument('--batch_size',type=int,default=1,help='batch size')
-parser.add_argument('--learning_rate',type=float,default=0.001,help='learning rate')
-parser.add_argument('--dropout',type=float,default=0.3,help='dropout rate')
-parser.add_argument('--weight_decay',type=float,default=0.0001,help='weight decay rate')
-parser.add_argument('--checkpoint',type=str,help='')
-parser.add_argument('--plotheatmap',type=str,default='True',help='')
-#parser.add_argument('--seed',type=int,default=99,help='random seed')
-parser.add_argument('--save',type=str,default='./train_val_drb/',help='save path')
-parser.add_argument('--expid',type=str,default='default',help='experiment id')
 
-#args = parser.parse_args()
-
-args = parser.parse_args(['--data', 'data/DRB_gwn_full'])
-
+args = argparse.Namespace(addaptadj=True, adjdata='data/DRB_gwn_full/adj_mx.pkl', adjtype='transition', aptonly=False, batch_size=8, data='data/DRB_gwn_full_60', device='cuda', dropout=0.3, epochs=100, epochs_pre=50, expid='full60', gcn_bool=True, in_dim=8, kernel_size=4, layer_size=3, learning_rate=0.001, n_blocks=4, nhid=32, num_nodes=456, out_dim=30, print_every=10, randomadj=True, save='./train_val_drb/', seq_length=60, weight_decay=0.0001)
+args.checkpoint = './train_val_drb/full60_best_1.56.pth'
 args.device = 'cpu'
-args.gcn_bool = True
-args.addaptadj = True
-args.randomadj = True
-args.checkpoint = 'train_val_drb/dt_best_1.78.pth'
-args.data = 'data/DRB_gwn_full'
-#args.adjtype = 'transition'
-
-def main():
-    device = torch.device(args.device)
-
-    _, _, adj_mx = util.load_adj(args.adjdata,args.adjtype)
-    supports = [torch.tensor(i).to(device) for i in adj_mx]
-    if args.randomadj:
-        adjinit = None
-    else:
-        adjinit = supports[0]
-
-    if args.aptonly:
-        supports = None
-    model = gwnet(device, args.num_nodes, args.dropout, supports=supports, gcn_bool=args.gcn_bool, addaptadj=args.addaptadj,
-                   in_dim=args.in_dim, out_dim=args.seq_length, residual_channels=args.nhid, dilation_channels=args.nhid,
-                  skip_channels=args.nhid * 8, end_channels=args.nhid * 16, aptinit=adjinit)
-    #model =  gwnet(device, args.num_nodes, args.dropout, supports=supports, gcn_bool=args.gcn_bool, addaptadj=args.addaptadj, aptinit=adjinit)
-    model.to(device)
-    #dict = torch.load(args.checkpoint, map_location=torch.device('cpu'))
-    model.load_state_dict(torch.load(args.checkpoint, map_location=torch.device('cpu')))
-    model.eval()
 
 
-    print('model load successfully')
+_, _, adj_mx = util.load_adj(args.adjdata,args.adjtype)
+supports = [torch.tensor(i).to(args.device) for i in adj_mx]
+if args.randomadj:
+    adjinit = None
+else:
+    adjinit = supports[0]
 
-    dataloader = util.load_dataset(args.data, args.batch_size, args.batch_size, args.batch_size)
-    scaler = dataloader['scaler']
-    outputs = []
-    realy = torch.Tensor(dataloader['y_test']).to(device)
-    realy = realy.transpose(1,3)[:,0,:,:]
+if args.aptonly:
+    supports = None
+model = gwnet(args.device, args.num_nodes, args.dropout, supports=supports, gcn_bool=args.gcn_bool, addaptadj=args.addaptadj,
+               in_dim=args.in_dim, out_dim=args.out_dim, residual_channels=args.nhid, dilation_channels=args.nhid,
+              skip_channels=args.nhid * 8, end_channels=args.nhid * 16, aptinit=adjinit, kernel_size=args.kernel_size, layers=args.layer_size)
 
-    for iter, (x, y) in enumerate(dataloader['test_loader'].get_iterator()):
-        testx = torch.Tensor(x).to(device)
-        testx = testx.transpose(1,3)
-        with torch.no_grad():
-            preds = model(testx).transpose(1,3)
-        outputs.append(preds.squeeze())
+#model =  gwnet(device, args.num_nodes, args.dropout, supports=supports, gcn_bool=args.gcn_bool, addaptadj=args.addaptadj, aptinit=adjinit)
+model.to(args.device)
+#dict = torch.load(args.checkpoint, map_location=torch.device('cpu'))
+model.load_state_dict(torch.load(args.checkpoint, map_location=torch.device('cpu')))
+model.eval()
 
-    yhat = torch.cat(outputs,dim=0)
-    yhat = yhat[:realy.size(0),...]
+print('model load successfully')
 
+dataloader = util.load_dataset(args.data, args.batch_size, args.batch_size, args.batch_size)
+scaler = dataloader['scaler']
+outputs = []
+realy = torch.Tensor(dataloader['y_test']).to(args.device)
+realy = realy.transpose(1,3)[:,0,:,:]
 
-    amae = []
-    amape = []
-    armse = []
-    for i in range(12):
-        pred = scaler.inverse_transform(yhat[:,:,i])
-        real = realy[:,:,i]
-        metrics = util.metric(pred,real)
-        log = 'Evaluate best model on test data for horizon {:d}, Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'
-        print(log.format(i+1, metrics[0], metrics[1], metrics[2]))
-        amae.append(metrics[0])
-        amape.append(metrics[1])
-        armse.append(metrics[2])
+for iter, (x, y) in enumerate(dataloader['test_loader'].get_iterator()):
+    testx = torch.Tensor(x).to(args.device)
+    testx = testx.transpose(1,3)
+    with torch.no_grad():
+        preds = model(testx).transpose(1,3)
+    outputs.append(preds.squeeze())
 
-    log = 'On average over 12 horizons, Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'
-    print(log.format(np.mean(amae),np.mean(amape),np.mean(armse)))
+yhat = torch.cat(outputs,dim=0)
+yhat = yhat[:realy.size(0),...]
+print(yhat.shape)
 
+'''
+adp = F.softmax(F.relu(torch.mm(model.nodevec1, model.nodevec2)), dim=1)
+device = torch.device('cpu')
+adp.to(device)
+adp = adp.cpu().detach().numpy()
+adp = adp*(1/np.max(adp))
+df = pd.DataFrame(adp)
+plt.imshow(df, cmap="YlBu")
+plt.show()
+'''
 
-    if args.plotheatmap == "True":
-        adp = F.softmax(F.relu(torch.mm(model.nodevec1, model.nodevec2)), dim=1)
-        device = torch.device('cpu')
-        adp.to(device)
-        adp = adp.cpu().detach().numpy()
-        adp = adp*(1/np.max(adp))
-        df = pd.DataFrame(adp)
-        sns.heatmap(df, cmap="RdYlBu")
+adp = F.softmax(F.relu(torch.mm(model.nodevec1, model.nodevec2)), dim=1)
+device = torch.device('cpu')
+adp.to(device)
+adp = adp.cpu().detach().numpy()
+adp = adp*(1/np.max(adp))
+df = pd.DataFrame(adp)
+sns.heatmap(df, cmap="RdYlBu")
         #plt.savefig("./emb"+ '.pdf')
 
-    y12 = realy[:,99,11].cpu().detach().numpy()
-    yhat12 = scaler.inverse_transform(yhat[:,99,11]).cpu().detach().numpy()
 
-    y3 = realy[:,99,2].cpu().detach().numpy()
-    yhat3 = scaler.inverse_transform(yhat[:,99,2]).cpu().detach().numpy()
+data = np.load(args.data + '/data.npz')
+period = data['period'][0]
 
-    df2 = pd.DataFrame({'real12':y12,'pred12':yhat12, 'real3': y3, 'pred3':yhat3})
-    df2.to_csv('./wave.csv',index=False)
+test_dates =  np.transpose(data['dates_test'],(0,3,2,1)).squeeze()
+test_ids =  np.transpose(data['ids_test'],(0,3,2,1)).squeeze()
 
-
-if __name__ == "__main__":
-    main()
+if ~np.isnan(period):
+    test_ids = test_ids[:,:,-period:]
+    test_dates = test_dates[:,:,-period:]
 
 
+def prepped_array_to_df(data_array, obs, dates, ids):
+
+    df_obs = pd.DataFrame(obs.flatten(), columns = ['temp_ob'])
+    df_preds = pd.DataFrame(data_array.flatten(), columns=['temp_pred'])
+    df_dates = pd.DataFrame(dates.flatten(), columns=["date"])
+    df_ids = pd.DataFrame(ids.flatten(), columns=["seg_id_nat"])
+    df = pd.concat([df_dates, df_ids, df_preds, df_obs], axis=1)
+    return df
+
+test_df = prepped_array_to_df(np.array(yhat), np.array(realy), test_dates, test_ids)
+
+counts = test_df.dropna().groupby('seg_id_nat').size()
+filt = counts[counts > 1000].index.tolist()
+test_df = test_df[test_df.seg_id_nat.isin(filt)]
+
+
+def rmse(predictions, targets):
+    return np.sqrt(((predictions - targets) ** 2).mean())
+
+
+def plotter(df,seg):
+    df = df[df.seg_id_nat == seg]
+    actual = df.temp_ob
+    predicted = df.temp_pred
+    fig, ax = plt.subplots()
+    x = df.date
+    ax.scatter(x, actual, s=2, alpha = .5, label='Actual')
+    ax.scatter(x, predicted,s=2, alpha=.5, label='Predicted')
+    rms = rmse(actual, predicted)
+    ax.legend()
+    ax.set_title(str(seg) + ': RMSE ' + str(rms))
+
+
+plotter(test_df,1498)
 names = ['x', 'y', 'z']
 index = pd.MultiIndex.from_product([range(s)for s in realy.shape], names=names)
 df = pd.DataFrame({'realy': realy.flatten()}, index=index)['realy']

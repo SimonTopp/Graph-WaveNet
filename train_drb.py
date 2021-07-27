@@ -7,6 +7,7 @@ import util
 import os.path
 #import matplotlib.pyplot as plt
 from engine import trainer
+import generate_training_data_drb
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--device',type=str,default='cuda',help='')
@@ -29,13 +30,34 @@ parser.add_argument('--weight_decay',type=float,default=0.0001,help='weight deca
 parser.add_argument('--epochs',type=int,default=50,help='')
 parser.add_argument('--epochs_pre',type=int,default=25,help='')
 parser.add_argument('--print_every',type=int,default=20,help='')
+'''
 #parser.add_argument('--seed',type=int,default=99,help='random seed')
 parser.add_argument('--save',type=str,default='./train_val_drb/',help='save path')
 parser.add_argument('--expid',type=str,default='default',help='experiment id')
 parser.add_argument('--kernel_size',type=int, default=2)
 parser.add_argument('--layer_size',type=int,default=2)
+parser.add_argument('--n_blocks',type=int, default=4)
+## data args
+parser.add_argument("--obs_temper_file", type=str, default='../river-dl/data/in/obs_temp_full')
+parser.add_argument('--obs_flow_file',type=str, default='../river-dl/data/in/obs_flow_full')
+parser.add_argument("--pretrain_file",type=str,default='../river-dl/data/in/uncal_sntemp_input_output')
+parser.add_argument('--train_start_date',nargs='+', default= ['1985-10-01', '2016-10-01'])
+parser.add_argument("--train_end_date",nargs='+',default=['2006-09-30', '2020-09-30'])
+parser.add_argument("--val_start_date",type=str, default='2006-10-01')
+parser.add_argument("--val_end_date",type=str,default='2016-09-30')
+parser.add_argument("--test_start_date",nargs='+',default=['1980-10-01', '2020-10-01'])
+parser.add_argument("--test_end_date",nargs='+',default=['1985-09-30', '2021-09-30'])
+parser.add_argument("--x_vars",nargs='+',default=["seg_rain", "seg_tave_air", "seginc_swrad", "seg_length", "seginc_potet", "seg_slope", "seg_humid","seg_elev"])
+parser.add_argument("--y_vars",nargs="+",default=['seg_tave_water'])
+parser.add_argument("--primary_variable",type=str,default='temp')
+parser.add_argument("--seq_length",type=int,default=365)
+parser.add_argument("--period=np.nan,
+    offset=1,
+    out_file = 'data/DRB_gwn'
 
-#args = parser.parse_args()
+'''
+args = parser.parse_args()
+'''
 args = parser.parse_args(['--epochs', '1'])
 args.data = 'data/DRB_gwn'
 args.adjdata = 'data/DRB_gwn/adj_mx.pkl'
@@ -51,6 +73,7 @@ args.batch_size = 2
 args.expid='testsub'
 args.kernel_size = 4
 args.layer_size = 6
+'''
 
 def main():
     #set seed
@@ -80,7 +103,7 @@ def main():
 
     engine = trainer(scaler, args.in_dim, args.seq_length, args.num_nodes, args.nhid, args.dropout,
                          args.learning_rate, args.weight_decay, device, supports, args.gcn_bool, args.addaptadj,
-                         adjinit, args.out_dim, args.kernel_size, args.layer_size)
+                         adjinit, args.out_dim, args.kernel_size, args.n_blocks, args.layer_size)
 
     print("start pre_training...", flush=True)
     phis_loss =[]

@@ -455,9 +455,9 @@ def sort_dist_matrix(mat, row_col_names):
 #check = prep_adj_matrix('../../gits/river-dl/DRB_data/distance_matrix.npz', 'upstream', 'data/DRB_gwn_full/adj_mx')
 #if __name__ == "__main__":
 
-check2 = prep_data(obs_temper_file='../../gits/river-dl/DRB_data/obs_temp_subset',
-    obs_flow_file='../../gits/river-dl/DRB_data/obs_flow_subset',
-    pretrain_file='../../gits/river-dl/DRB_data/uncal_sntemp_input_output_subset',
+check2 = prep_data(obs_temper_file='../../gits/river-dl/DRB_data/obs_temp_full',
+    obs_flow_file='../../gits/river-dl/DRB_data/obs_flow_full',
+    pretrain_file='../../gits/river-dl/DRB_data/uncal_sntemp_input_output',
     train_start_date=['1985-10-01', '2016-10-01'],
     train_end_date=['2006-09-30', '2020-09-30'],
     val_start_date='2006-10-01',
@@ -471,7 +471,7 @@ check2 = prep_data(obs_temper_file='../../gits/river-dl/DRB_data/obs_temp_subset
     seq_length=365,
     period=np.nan,
     offset=1,
-    out_file = 'data/DRB_gwn')
+    out_file = 'data/DRB_gwn_full')
 
 
 '''f __name__ == "__main__":
